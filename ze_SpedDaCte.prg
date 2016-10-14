@@ -399,7 +399,7 @@ METHOD NovaPagina() CLASS hbnfeDaCte
 
    ENDIF
 
-   IF ::aInfProt[ "nProt" ] <> Nil .AND. ::aInfProt[ "cStat" ] $ "101,135" 
+   IF .NOT. Empty(::aInfProt[ "nProt" ]) .AND. ::aInfProt[ "cStat" ] $ "101,135" 
 
 	    HPDF_Page_SetFontAndSize( ::oPdfPage, ::oPdfFontCabecalhoBold, 30 )
 	    HPDF_Page_BeginText(::oPdfPage)
