@@ -46,6 +46,7 @@ FUNCTION AssinaXml( cTxtXml, cCertCN )
       { "<infInut",               "<inutNFe>" }, ;
       { "<infCanc",               "</cancNFe>" }, ;
       { "<infInut",               "</inutNFe>" }, ;
+      { "<infInut",               "</inutCTe>" }, ;
       { "<infEvento",             "</evento>" }, ;
       { "<infPedidoCancelamento", "</Pedido>" }, ;               // NFSE ABRASF Cancelamento
       { "<LoteRps",               "</EnviarLoteRpsEnvio>" }, ;   // NFSE ABRASF Lote

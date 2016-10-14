@@ -312,7 +312,6 @@ METHOD CTeLoteEnvia( cXml, cLote, cUF, cCertificado, cAmbiente ) CLASS SefazClas
    IF ! Empty( ::cRecibo )
       Inkey( ::nTempoEspera )
       ::CteConsultaRecibo()
-      //::cXmlRetorno := ::CteGeraAutorizado( cXml, ::cXmlProtocolo )
       ::CteGeraAutorizado( cXml, ::cXmlProtocolo ) // runner
    ENDIF
 
@@ -847,23 +846,23 @@ METHOD NFeInutiliza( cAno, cCnpj, cMod, cSerie, cNumIni, cNumFim, cJustificativa
    ::cXmlDados   +=       XmlTag( "CNPJ", SoNumeros( cCnpj ) )
    ::cXmlDados   +=       XmlTag( "mod", cMod )
    ::cXmlDados   +=       XmlTag( "serie", cSerie )
-   ::cXmlDados   +=       XmlTag( "nNFIni", cNumIni )
-   ::cXmlDados   +=       XmlTag( "nNFFin", cNumFim )
+   ::cXmlDados   +=       XmlTag( "nNFIni", Alltrim(Str(Val(cNumIni))) )
+   ::cXmlDados   +=       XmlTag( "nNFFin", Alltrim(Str(Val(cNumFim))) )
    ::cXmlDados   +=       XmlTag( "xJust", cJustificativa )
    ::cXmlDados   +=    [</infInut>]
    ::cXmlDados   += [</inutNFe>]
 
-   AssinaXml( @::cXmlDados, ::cCertificado )
-   ::XmlSoapPost( ::cUF, ::cCertificado, WS_PROJETO_NFE )
-
-   ::cStatus := XmlNode( ::cXmlRetorno, "cStat" )
-   ::cMotivo := XmlNode( ::cXmlRetorno, "xMotivo" )
-	IF ::cStatus == "102"
-      ::cXmlAutorizado := [<ProcInutNFe versao="3.10" xmlns="http://www.portalfiscal.inf.br/nfe">]
-      ::cXmlAutorizado += ::cXmlDados
-      ::cXmlAutorizado += XmlNode( ::cXmlRetorno, "retInutNFe", .T. )
-      ::cXmlAutorizado += [</ProcInutNFe>]
-      //::cXmlRetorno := ::cXmlAutorizado
+   ::cXmlRetorno := AssinaXml( @::cXmlDados, ::cCertificado )
+   IF ::cXmlRetorno == "OK"
+	   ::XmlSoapPost( ::cUF, ::cCertificado, WS_PROJETO_NFE )
+	   ::cStatus := XmlNode( ::cXmlRetorno, "cStat" )
+	   ::cMotivo := XmlNode( ::cXmlRetorno, "xMotivo" )
+		IF ::cStatus == "102"
+	      ::cXmlAutorizado := [<ProcInutNFe versao="3.10" xmlns="http://www.portalfiscal.inf.br/nfe">]
+	      ::cXmlAutorizado += ::cXmlDados
+	      ::cXmlAutorizado += XmlNode( ::cXmlRetorno, "retInutNFe", .T. )
+	      ::cXmlAutorizado += [</ProcInutNFe>]
+	   ENDIF
    ENDIF
    RETURN ::cXmlRetorno
 
@@ -1128,9 +1127,9 @@ METHOD XmlSoapPost( cUF, cCertificado, cProjeto ) CLASS SefazClass
       RETURN NIL
    ENDIF
    IF "<soap:Body>" $ ::cXmlRetorno .AND. "</soap:Body>" $ ::cXmlRetorno
-      ::cXmlRetorno := XmlNode( ::cXmlRetorno, "soap:Body" )
+      ::cXmlRetorno := hb_Utf8ToStr(XmlNode( ::cXmlRetorno, "soap:Body" ))
    ELSEIF "<soapenv:Body>" $ ::cXmlRetorno .AND. "</soapenv:Body>" $ ::cXmlRetorno
-      ::cXmlRetorno := XmlNode( ::cXmlRetorno, "soapenv:Body" )
+      ::cXmlRetorno := hb_Utf8ToStr(XmlNode( ::cXmlRetorno, "soapenv:Body" ))
    ELSE
       ::cXmlRetorno := "Erro SOAP: XML retorno não está no padrão " + ::cXmlRetorno
    ENDIF
@@ -1938,13 +1937,13 @@ METHOD CTeInutiliza( cAno, cCnpj, cMod, cSerie, cNumIni, cNumFim, cJustificativa
    ENDIF
    IF cAmbiente != NIL
       ::cAmbiente := cAmbiente
-   ENDIF
-   ::cVersaoXml  := "2.00"
-   ::cServico    := "http://www.portalfiscal.inf.br/cte/wsdl/CTeInutilizacao2"
-   ::cSoapAction := "CteInutilizacaoNF2"
-   ::cWebService := ::GetWebService( ::cUF, WS_NFE_INUTILIZACAO, ::cAmbiente, WS_PROJETO_NFE )
+   ENDIF       
+   ::cVersaoXml  := "2.00"  
+   ::cServico    := "http://www.portalfiscal.inf.br/cte/wsdl/CteInutilizacao"
+   ::cSoapAction := "cteInutilizacaoCT"
+   ::cWebService := ::GetWebService( ::cUF, WS_CTE_INUTILIZACAO, ::cAmbiente, WS_PROJETO_CTE )
    ::cXmlDados   := [<inutCTe versao="] + ::cVersaoXml + [" xmlns="http://www.portalfiscal.inf.br/cte">]
-   ::cXmlDados   +=    [<infInut Id="ID] + ::UFCodigo( ::cUF ) + Right( cAno, 2 ) + cCnpj + cMod + StrZero( Val( cSerie ), 3 )
+   ::cXmlDados   +=    [<infInut Id="ID] + ::UFCodigo( ::cUF ) + cCnpj + cMod + StrZero( Val( cSerie ), 3 )
    ::cXmlDados   +=    StrZero( Val( cNumIni ), 9 ) + StrZero( Val( cNumFim ), 9 ) + [">]
    ::cXmlDados   +=       XmlTag( "tpAmb", ::cAmbiente )
    ::cXmlDados   +=       XmlTag( "xServ", "INUTILIZAR" )
@@ -1953,23 +1952,22 @@ METHOD CTeInutiliza( cAno, cCnpj, cMod, cSerie, cNumIni, cNumFim, cJustificativa
    ::cXmlDados   +=       XmlTag( "CNPJ", SoNumeros( cCnpj ) )
    ::cXmlDados   +=       XmlTag( "mod", cMod )
    ::cXmlDados   +=       XmlTag( "serie", cSerie )
-   ::cXmlDados   +=       XmlTag( "nNFIni", cNumIni )
-   ::cXmlDados   +=       XmlTag( "nNFFin", cNumFim )
+   ::cXmlDados   +=       XmlTag( "nCTIni", Alltrim(Str(Val(cNumIni))) ) 
+   ::cXmlDados   +=       XmlTag( "nCTFin", Alltrim(Str(Val(cNumFim))) )
    ::cXmlDados   +=       XmlTag( "xJust", cJustificativa )
    ::cXmlDados   +=    [</infInut>]
    ::cXmlDados   += [</inutCTe>]
-
-   AssinaXml( @::cXmlDados, ::cCertificado )
-   ::XmlSoapPost( ::cUF, ::cCertificado, WS_PROJETO_NFE )
-
-   ::cStatus := XmlNode( ::cXmlRetorno, "cStat" )
-   ::cMotivo := XmlNode( ::cXmlRetorno, "xMotivo" )
-	IF ::cStatus == "102"
-      ::cXmlAutorizado := [<ProcInutCTe versao="2.00" xmlns="http://www.portalfiscal.inf.br/cte">]
-      ::cXmlAutorizado += ::cXmlDados
-      ::cXmlAutorizado += XmlNode( ::cXmlRetorno, "retInutCTe", .T. )
-      ::cXmlAutorizado += [</ProcInutCTe>]
-      //::cXmlRetorno := ::cXmlAutorizado
+   ::cXmlRetorno := AssinaXml( @::cXmlDados, ::cCertificado )
+   IF ::cXmlRetorno == "OK"
+	   ::XmlSoapPost( ::cUF, ::cCertificado, WS_PROJETO_CTE )
+	   ::cStatus := XmlNode( ::cXmlRetorno, "cStat" )
+	   ::cMotivo := XmlNode( ::cXmlRetorno, "xMotivo" )
+		IF ::cStatus == "102"
+	      ::cXmlAutorizado := [<ProcInutCTe versao="2.00" xmlns="http://www.portalfiscal.inf.br/cte">]
+	      ::cXmlAutorizado += ::cXmlDados
+	      ::cXmlAutorizado += XmlNode( ::cXmlRetorno , "retInutCTe", .T. )
+	      ::cXmlAutorizado += [</ProcInutCTe>]
+	   ENDIF
    ENDIF
    RETURN ::cXmlRetorno
 
