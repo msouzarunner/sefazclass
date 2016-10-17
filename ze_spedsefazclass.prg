@@ -108,7 +108,12 @@ CREATE CLASS SefazClass
    METHOD MDFeGeraAutorizado( cXmlAssinado, cXmlProtocolo )
    METHOD MDFeStatusServico( cUF, cCertificado, cAmbiente )
    METHOD MDFeConsultaProtocolo( cChave, cCertificado, cAmbiente )
-
+   METHOD MDFeEventoEncerramento( cChave, nSequencia , nProt, cUFFim , cMunCarrega , cCertificado, cAmbiente ) 
+	METHOD MDFeEventoEnvia( cChave, cXml, cCertificado, cAmbiente ) 
+	METHOD MDFeGeraEventoAutorizado( cXmlAssinado, cXmlProtocolo )
+	METHOD MDFeEventoCancela( cChave, nSequencia, nProt, xJust, cCertificado, cAmbiente )
+	METHOD MDFeConsNaoEnc( cCNPJ , cCertificado, cAmbiente )	
+	
    METHOD NFeInutiliza( cAno, cCnpj, cMod, cSerie, cNumIni, cNumFim, cJustificativa, cUF, cCertificado, cAmbiente )
    METHOD NFeLoteEnvia( cXml, cLote, cUF, cCertificado, cAmbiente, cIndSinc )
    METHOD NFeConsultaRecibo( cRecibo, cUF, cCertificado, cAmbiente )
@@ -136,7 +141,6 @@ CREATE CLASS SefazClass
    METHOD MicrosoftXmlSoapPost()
    METHOD UFCodigo( cSigla )
    METHOD UFSigla( cCodigo )
-   //METHOD DateTimeXml( dDate, cTime ) INLINE DateTimeXml( dDate, cTime, iif( ::cUFTimeZone == NIL, ::cUF, ::cUFTimeZone ) )
    METHOD DateTimeXml( dDate, cTime , cUF , lUTC ) INLINE DateTimeXml( dDate, cTime, iif( ::cUFTimeZone == NIL, ::cUF, ::cUFTimeZone ) , lUTC ) // runner
 
    ENDCLASS
@@ -312,7 +316,7 @@ METHOD CTeLoteEnvia( cXml, cLote, cUF, cCertificado, cAmbiente ) CLASS SefazClas
    IF ! Empty( ::cRecibo )
       Inkey( ::nTempoEspera )
       ::CteConsultaRecibo()
-      ::CteGeraAutorizado( cXml, ::cXmlProtocolo ) // runner
+      ::CteGeraAutorizado( cXml, hb_Utf8ToStr(::cXmlProtocolo) ) // runner
    ENDIF
 
    RETURN ::cXmlRetorno
@@ -409,7 +413,6 @@ METHOD MDFeConsultaProtocolo( cChave, cCertificado, cAmbiente ) CLASS SefazClass
    ELSE
       ::XmlSoapPost( ::cUF, ::cCertificado, WS_PROJETO_MDFE )
    ENDIF
-
    RETURN ::cXmlRetorno
 
 METHOD MDFeLoteEnvia( cXml, cLote, cUF, cCertificado, cAmbiente ) CLASS SefazClass
@@ -423,9 +426,12 @@ METHOD MDFeLoteEnvia( cXml, cLote, cUF, cCertificado, cAmbiente ) CLASS SefazCla
    IF cAmbiente != NIL
       ::cAmbiente := cAmbiente
    ENDIF
+   IF Empty( cLote )
+      cLote := "1"
+   ENDIF
    ::cVersaoXml   := "1.00"
    ::cServico     := "http://www.portalfiscal.inf.br/mdfe/wsdl/MDFeRecepcao"
-   ::cSoapAction  := "MDFeRecepcao"
+   ::cSoapAction  := "mdfeRecepcaoLote"
    ::cWebService  := ::GetWebService( ::cUF, WS_MDFE_RECEPCAO, ::cAmbiente, WS_PROJETO_MDFE )
    ::cXmlDados    := [<enviMDFe versao="] + ::cVersaoXml + [" xmlns="http://www.portalfiscal.inf.br/mdfe">]
    ::cXmlDados    +=    XmlTag( "idLote", cLote )
@@ -437,7 +443,7 @@ METHOD MDFeLoteEnvia( cXml, cLote, cUF, cCertificado, cAmbiente ) CLASS SefazCla
    IF ! Empty( ::cRecibo )
       Inkey( ::nTempoEspera )
       ::MDFeConsultaRecibo()
-      ::cXmlRetorno := ::MDFeGeraAutorizado( cXml, ::cXmlProtocolo )
+      ::cXmlRetorno := ::MDFeGeraAutorizado( cXml, hb_Utf8ToStr(::cXmlProtocolo) )
    ENDIF
 
    RETURN ::cXmlRetorno
@@ -509,10 +515,10 @@ METHOD MDFeDistribuicaoDFe( cCnpj, cUltNSU, cNSU, cUF, cCertificado, cAmbiente )
 METHOD MDFeGeraAutorizado( cXmlAssinado, cXmlProtocolo ) CLASS SefazClass
 
    hb_Default( @cXmlAssinado, "" )
-   hb_Default( @cXmlProtocolo, "" )
-   ::cStatus := Pad( XmlNode( XmlNode( cXmlProtocolo, "protMDFe" ), "cStat" ), 3 )
+   hb_Default( @cXmlProtocolo, "" )   
+   ::cStatus := XmlNode( XmlNode( cXmlProtocolo, "protMDFe" ), "cStat" )
+   ::cMotivo := XmlNode( XmlNode( cXmlProtocolo, "protMDFe" ), "xMotivo" )
    IF ! ::cStatus $ "100,101,150,301,302"
-      ::cXmlRetorno := "Não autorizado: " + ::cXmlProtocolo
       RETURN ::cXmlRetorno
    ENDIF
    ::cXmlAutorizado := [<?xml version="1.00"?>]
@@ -520,7 +526,7 @@ METHOD MDFeGeraAutorizado( cXmlAssinado, cXmlProtocolo ) CLASS SefazClass
    ::cXmlAUtorizado +=    cXmlAssinado
    ::cXmlAutorizado +=    XmlNode( cXmlProtocolo, "protMDFe", .T. )
    ::cXmlAutorizado += [</mdfeProc>]
-
+   ::cXmlDados := cXmlAssinado
    RETURN ::cXmlAutorizado
 
 METHOD MDFeStatusServico( cUF, cCertificado, cAmbiente ) CLASS SefazClass
@@ -533,14 +539,13 @@ METHOD MDFeStatusServico( cUF, cCertificado, cAmbiente ) CLASS SefazClass
    ENDIF
    IF cAmbiente != NIL
       ::cAmbiente := cAmbiente
-   ENDIF
+   ENDIF             
    ::cVersaoXml   := "1.00"
-   ::cServico     := "http://www.portalfiscal.inf.br/mdfe/wsdl/MDFeStatusServico/mdfeStatusServicoMDF"
-   ::cSoapAction  := "MDFeStatusServico"
+   ::cServico     := "http://www.portalfiscal.inf.br/mdfe/wsdl/MDFeStatusServico"
+   ::cSoapAction  := "mdfeStatusServicoMDF"
    ::cWebService  := ::GetWebService( ::cUF, WS_MDFE_STATUSSERVICO, ::cAmbiente, WS_PROJETO_MDFE )
    ::cXmlDados    := [<consStatServMDFe versao="] + ::cVersaoXml + [" xmlns="http://www.portalfiscal.inf.br/mdfe">]
    ::cXmlDados    +=    XmlTag( "tpAmb", ::cAmbiente )
-   ::cXmlDados    +=    XmlTag( "cUF", ::UFCodigo( ::cUF ) )
    ::cXmlDados    +=    XmlTag( "xServ", "STATUS" )
    ::cXmlDados    += [</consStatServMDFe>]
    ::XmlSoapPost( ::cUF, ::cCertificado, WS_PROJETO_MDFE )
@@ -1636,13 +1641,12 @@ STATIC FUNCTION UrlWebService( cUF, cAmbiente, nWsServico, cVersao )
          CASE nWsServico == WS_CTE_CONSULTAPROTOCOLO ;   cUrlWs := "https://cte.svrs.rs.gov.br/ws/cteconsulta/CteConsulta.asmx"
          CASE nWsServico == WS_CTE_STATUSSERVICO ;       cUrlWs := "https://cte.svrs.rs.gov.br/ws/ctestatusservico/CteStatusServico.asmx"
          CASE nWsServico == WS_CTE_RECEPCAOEVENTO ;      cUrlWs := "https://cte.svrs.rs.gov.br/ws/cterecepcaoevento/cterecepcaoevento.asmx"
-         CASE nWsServico == WS_MDFE_DISTRIBUICAODFE ;    cUrlWs := "https://mdfe.svrs.rs.gov.br/WS/MDFeDistribuicaoDFe/MDFeDistribuicaoDFe.asmx"
-         CASE nWsServico == WS_MDFE_CONSULTA ;           cUrlWs := "https://mdfe.svrs.rs.gov.br/ws/MDFeConsulta/MDFeConsulta.asmx"
-         CASE nWsServico == WS_MDFE_RECEPCAO ;           cUrlWs := "https://mdfe.svrs.rs.gov.br/ws/MDFerecepcao/MDFeRecepcao.asmx"
-         CASE nWsServico == WS_MDFE_RECEPCAOEVENTO ;     cUrlWs := "https://mdfe.svrs.rs.gov.br/ws/MDFeRecepcaoEvento/MDFeRecepcaoEvento.asmx"
+  			CASE nWsServico == WS_MDFE_RECEPCAO ;           cUrlWs := "https://mdfe.svrs.rs.gov.br/ws/MDFerecepcao/MDFeRecepcao.asmx"
          CASE nWsServico == WS_MDFE_RETRECEPCAO ;        cUrlWs := "https://mdfe.svrs.rs.gov.br/ws/MDFeRetRecepcao/MDFeRetRecepcao.asmx"
+         CASE nWsServico == WS_MDFE_CONSULTA ;  			cUrlWs := "https://mdfe.svrs.rs.gov.br/ws/MDFeConsulta/MDFeConsulta.asmx"
          CASE nWsServico == WS_MDFE_STATUSSERVICO ;      cUrlWs := "https://mdfe.svrs.rs.gov.br/ws/MDFeStatusServico/MDFeStatusServico.asmx"
-         CASE nWsServico == WS_MDFE_CONSNAOENC ;         cUrlWs := "https://mdfe.svrs.rs.gov.br/ws/mdfeconsnaoenc/mdfeconsnaoenc.asmx"
+         CASE nWsServico == WS_MDFE_RECEPCAOEVENTO ;     cUrlWs := "https://mdfe.svrs.rs.gov.br/ws/MDFeRecepcaoEvento/MDFeRecepcaoEvento.asmx"
+         CASE nWsServico == WS_MDFE_CONSNAOENC ;     		cUrlWs := "https://mdfe.svrs.rs.gov.br/ws/MDFeConsNaoEnc/MDFeConsNaoEnc.asmx"
          CASE nWsServico == WS_NFE_AUTORIZACAO ;         cUrlWs := "https://nfe.sefazrs.rs.gov.br/ws/NfeAutorizacao/NFeAutorizacao.asmx"
          CASE nWsServico == WS_NFE_CONSULTACADASTRO ;    cUrlWs := "https://cad.sefazrs.rs.gov.br/ws/cadconsultacadastro/cadconsultacadastro2.asmx"
          CASE nWsServico == WS_NFE_CONSULTADEST ;        cUrlWs := "https://nfe.sefazrs.rs.gov.br/ws/nfeConsultaDest/nfeConsultaDest.asmx"
@@ -1655,12 +1659,12 @@ STATIC FUNCTION UrlWebService( cUF, cAmbiente, nWsServico, cVersao )
          ENDCASE
       ELSE
          DO CASE
-         CASE nWsServico == WS_MDFE_CONSULTA ;           cUrlWs := "https://mdfe-hml.sefaz.rs.gov.br/ws/MDFeConsulta/MDFeConsulta.asmx"
-         CASE nWsServico == WS_MDFE_CONSNAOENC ;         cUrlWs := "https://mdfe-hml.sefaz.rs.gov.br/ws/mdfeconsnaoenc/mdfeconsnaoenc.asmx"
-         CASE nWsServico == WS_MDFE_RECEPCAO ;           cUrlWs := "https://mdfe-hml.sefaz.rs.gov.br/ws/MDFerecepcao/MDFeRecepcao.asmx"
-         CASE nWsServico == WS_MDFE_RECEPCAOEVENTO ;     cUrlWs := "https://mdfe-hml.sefaz.rs.gov.br/ws/MDFeRecepcaoEvento/MDFeRecepcaoEvento.asmx"
-         CASE nWsServico == WS_MDFE_RETRECEPCAO ;        cUrlWs := "https://mdfe-hml.sefaz.rs.gov.br/ws/MDFeRetRecepcao/MDFeRetRecepcao.asmx"
-         CASE nWsServico == WS_MDFE_STATUSSERVICO ;      cUrlWs := "https://mdfe-hml.sefaz.rs.gov.br/ws/MDFeStatusServico/MDFeStatusServico.asmx"
+         CASE nWsServico == WS_MDFE_RECEPCAO ;           cUrlWs := "https://mdfe-homologacao.svrs.rs.gov.br/ws/MDFerecepcao/MDFeRecepcao.asmx"
+	      CASE nWsServico == WS_MDFE_RETRECEPCAO ;        cUrlWs := "https://mdfe-homologacao.svrs.rs.gov.br/ws/MDFeRetRecepcao/MDFeRetRecepcao.asmx"
+         CASE nWsServico == WS_MDFE_CONSULTA ;  			cUrlWs := "https://mdfe-homologacao.svrs.rs.gov.br/ws/MDFeConsulta/MDFeConsulta.asmx"
+         CASE nWsServico == WS_MDFE_STATUSSERVICO ;      cUrlWs := "https://mdfe-homologacao.svrs.rs.gov.br/ws/MDFeStatusServico/MDFeStatusServico.asmx"
+         CASE nWsServico == WS_MDFE_RECEPCAOEVENTO ;     cUrlWs := "https://mdfe-homologacao.svrs.rs.gov.br/ws/MDFeRecepcaoEvento/MDFeRecepcaoEvento.asmx"
+         CASE nWsServico == WS_MDFE_CONSNAOENC ;     		cUrlWs := "https://mdfe-homologacao.svrs.rs.gov.br/ws/MDFeConsNaoEnc/MDFeConsNaoEnc.asmx"
          CASE nWsServico == WS_NFE_AUTORIZACAO ;         cUrlWs := "https://nfe-homologacao.sefazrs.rs.gov.br/ws/NfeAutorizacao/NFeAutorizacao.asmx"
          CASE nWsServico == WS_NFE_CONSULTACADASTRO ;    cUrlWs := "https://cad.sefazrs.rs.gov.br/ws/cadconsultacadastro/cadconsultacadastro2.asmx"
          CASE nWsServico == WS_NFE_CONSULTADEST ;        cUrlWs := "https://nfe-homologacao.sefazrs.rs.gov.br/ws/nfeConsultaDest/nfeConsultaDest.asmx"
@@ -1693,7 +1697,8 @@ STATIC FUNCTION UrlWebService( cUF, cAmbiente, nWsServico, cVersao )
          CASE nWsServico == WS_CTE_STATUSSERVICO ;       cUrlWs := "https://nfe.fazenda.sp.gov.br/cteWEB/services/cteStatusServico.asmx"
          CASE nWsServico == WS_CTE_RECEPCAOEVENTO ;      cUrlWs := "https://nfe.fazenda.sp.gov.br/cteweb/services/cteRecepcaoEvento.asmx"
          CASE nWsServico == WS_CTE_STATUSSERVICO ;       cUrlWs := "http://nfe.fazenda.sp.gov.br/cteWEB/services/cteStatusServico.asmx"
-         CASE nWsServico == WS_NFE_AUTORIZACAO ;         cUrlWs := "https://nfe.fazenda.sp.gov.br/ws/nfeautorizacao.asmx"
+         
+			CASE nWsServico == WS_NFE_AUTORIZACAO ;         cUrlWs := "https://nfe.fazenda.sp.gov.br/ws/nfeautorizacao.asmx"
          CASE nWsServico == WS_NFE_CANCELAMENTO ;        cUrlWs := "https://nfe.fazenda.sp.gov.br/nfeweb/services/nfecancelamento2.asmx"
          CASE nWsServico == WS_NFE_CONSULTACADASTRO ;    cUrlWs := "https://nfe.fazenda.sp.gov.br/ws/cadconsultacadastro2.asmx"
          CASE nWsServico == WS_NFE_CONSULTAPROTOCOLO ;   cUrlWs := "https://nfe.fazenda.sp.gov.br/ws/nfeconsulta2.asmx"
@@ -1701,6 +1706,7 @@ STATIC FUNCTION UrlWebService( cUF, cAmbiente, nWsServico, cVersao )
          CASE nWsServico == WS_NFE_RECEPCAOEVENTO ;      cUrlWs := "https://nfe.fazenda.sp.gov.br/ws/recepcaoevento.asmx"
          CASE nWsServico == WS_NFE_RETAUTORIZACAO ;      cUrlWs := "https://nfe.fazenda.sp.gov.br/ws/nferetautorizacao.asmx"
          CASE nWsServico == WS_NFE_STATUSSERVICO ;       cUrlWs := "https://nfe.fazenda.sp.gov.br/ws/nfestatusservico2.asmx"
+         
          ENDCASE
       ELSE                                                          
          DO CASE
@@ -1710,7 +1716,8 @@ STATIC FUNCTION UrlWebService( cUF, cAmbiente, nWsServico, cVersao )
          CASE nWsServico == WS_CTE_CONSULTAPROTOCOLO ;   cUrlWs := "https://homologacao.nfe.fazenda.sp.gov.br/cteWEB/services/cteConsulta.asmx"
          CASE nWsServico == WS_CTE_STATUSSERVICO ;       cUrlWs := "https://homologacao.nfe.fazenda.sp.gov.br/cteWEB/services/cteStatusServico.asmx"
          CASE nWsServico == WS_CTE_RECEPCAOEVENTO ;      cUrlWs := "https://homologacao.nfe.fazenda.sp.gov.br/cteweb/services/cteRecepcaoEvento.asmx"
-         CASE nWsServico == WS_NFE_AUTORIZACAO ;         cUrlWs := "https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeautorizacao.asmx"
+         
+			CASE nWsServico == WS_NFE_AUTORIZACAO ;         cUrlWs := "https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeautorizacao.asmx"
          CASE nWsServico == WS_NFE_CANCELAMENTO ;        cUrlWs := "https://homologacao.nfe.fazenda.sp.gov.br/nfeweb/services/NfeCancelamento2.asmx"
          CASE nWsServico == WS_NFE_CONSULTACADASTRO ;    cUrlWs := "https://homologacao.nfe.fazenda.sp.gov.br/ws/cadconsultacadastro2.asmx"
          CASE nWsServico == WS_NFE_CONSULTAPROTOCOLO ;   cUrlWs := "https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeconsulta2.asmx"
@@ -1718,6 +1725,7 @@ STATIC FUNCTION UrlWebService( cUF, cAmbiente, nWsServico, cVersao )
          CASE nWsServico == WS_NFE_RETAUTORIZACAO ;      cUrlWs := "https://homologacao.nfe.fazenda.sp.gov.br/ws/nferetautorizacao.asmx"
          CASE nWsServico == WS_NFE_RECEPCAOEVENTO ;      cUrlWs := "https://homologacao.nfe.fazenda.sp.gov.br/ws/recepcaoEvento.asmx"
          CASE nWsServico == WS_NFE_STATUSSERVICO ;       cUrlWs := "https://homologacao.nfe.fazenda.sp.gov.br/ws/nfestatusservico2.asmx"
+         
          ENDCASE
       ENDIF
 
@@ -1912,7 +1920,7 @@ METHOD CTeGeraEventoAutorizado( cXmlAssinado, cXmlProtocolo ) CLASS SefazClass
    hb_Default( @cXmlAssinado, "" )
    hb_Default( @cXmlProtocolo, "" )
    ::cStatus := Pad( XmlNode( XmlNode( cXmlProtocolo, "retEventoCTe" ), "cStat" ), 3 )
-   ::cMotivo := XmlNode( XmlNode( cXmlProtocolo, "retEventoCTe" ), "xMotivo" ) // runner
+   ::cMotivo := hb_Utf8ToStr(XmlNode( XmlNode( cXmlProtocolo, "retEventoCTe" ), "xMotivo" )) // runner
    IF ! ::cStatus $ "135,155"
       RETURN ::cXmlRetorno
    ENDIF
@@ -1923,6 +1931,7 @@ METHOD CTeGeraEventoAutorizado( cXmlAssinado, cXmlProtocolo ) CLASS SefazClass
    ::cXmlAutorizado +=    hb_Utf8ToStr(XmlNode( cXmlProtocolo, "retEventoCTe" ))
    ::cXmlAutorizado += [</retEventoCTe>] 
    ::cXmlAutorizado += [</procEventoCTe>]
+   ::cXmlDados := cXmlAssinado
    ::cMotivo := hb_Utf8ToStr(XmlNode( XmlNode( cXmlProtocolo, "infEvento" ), "xMotivo" )) 
 
    RETURN ::cXmlAutorizado
@@ -1972,51 +1981,197 @@ METHOD CTeInutiliza( cAno, cCnpj, cMod, cSerie, cNumIni, cNumFim, cJustificativa
    RETURN ::cXmlRetorno
 
 METHOD NFeAddCancelamento(cXmlAssinado,cXmlRetorno) CLASS SefazClass
+	LOCAL cDigVal
+		
 	cDigVal := XmlNode( cXmlAssinado , "Signature" ) 
 	cDigVal := XmlNode( cDigVal , "SignedInfo" )
 	cDigVal := XmlNode( cDigVal , "Reference" ) 
 	cDigVal := XmlNode( cDigVal , "DigestValue" ) 
 
-   cXmlAutorizado := [<?xml version="1.0"?>]
-   cXmlAutorizado += [<nfeProc versao="3.10" xmlns="http://www.portalfiscal.inf.br/nfe">]
-   cXmlAutorizado +=    cXmlAssinado
-   cXmlAutorizado += 	[<protNFe versao="3.10">]
-   cXmlAutorizado += 		[<infProt>]
-	cXmlAutorizado += 	   	XmlTag( "tpAmb" , XmlNode( XmlNode( XmlNode( cXmlRetorno , "retEvento" ) , "infEvento" ), "tpAmb" ) ) // runner
-	cXmlAutorizado += 	   	XmlTag( "verAplic", 'SP_NFE_PL_008i2')
-	cXmlAutorizado += 	   	XmlTag( "chNFe" , XmlNode( XmlNode( XmlNode( cXmlRetorno , "retEvento" ) , "infEvento" ), "chNFe" ) ) // runner
-	cXmlAutorizado += 	   	XmlTag( "dhRecbto" , XmlNode( XmlNode( XmlNode( cXmlRetorno , "retEvento" ) , "infEvento" ), "dhRegEvento" ) ) // runner
-	cXmlAutorizado += 	   	XmlTag( "nProt" , XmlNode( XmlNode( XmlNode( cXmlRetorno , "retEvento" ) , "infEvento" ), "nProt" ) ) // runner
-	cXmlAutorizado += 	   	XmlTag( "digVal", cDigVal)
-	cXmlAutorizado += 	   	XmlTag( "cStat", '101')
-	cXmlAutorizado += 	   	XmlTag( "xMotivo", 'Cancelamento da NFe homologado')
-   cXmlAutorizado += 		[</infProt>]
-   cXmlAutorizado += 	[</protNFe>]
-   cXmlAutorizado += [</nfeProc>]
+   ::cXmlAutorizado := [<?xml version="1.0"?>]
+   ::cXmlAutorizado += [<nfeProc versao="3.10" xmlns="http://www.portalfiscal.inf.br/nfe">]
+   ::cXmlAutorizado +=    cXmlAssinado
+   ::cXmlAutorizado += 	[<protNFe versao="3.10">]
+   ::cXmlAutorizado += 		[<infProt>]
+	::cXmlAutorizado += 	   	XmlTag( "tpAmb" , XmlNode( XmlNode( XmlNode( cXmlRetorno , "retEvento" ) , "infEvento" ), "tpAmb" ) ) // runner
+	::cXmlAutorizado += 	   	XmlTag( "verAplic", 'SP_NFE_PL_008i2')
+	::cXmlAutorizado += 	   	XmlTag( "chNFe" , XmlNode( XmlNode( XmlNode( cXmlRetorno , "retEvento" ) , "infEvento" ), "chNFe" ) ) // runner
+	::cXmlAutorizado += 	   	XmlTag( "dhRecbto" , XmlNode( XmlNode( XmlNode( cXmlRetorno , "retEvento" ) , "infEvento" ), "dhRegEvento" ) ) // runner
+	::cXmlAutorizado += 	   	XmlTag( "nProt" , XmlNode( XmlNode( XmlNode( cXmlRetorno , "retEvento" ) , "infEvento" ), "nProt" ) ) // runner
+	::cXmlAutorizado += 	   	XmlTag( "digVal", cDigVal)
+	::cXmlAutorizado += 	   	XmlTag( "cStat", '101')
+	::cXmlAutorizado += 	   	XmlTag( "xMotivo", 'Cancelamento da NFe homologado')
+   ::cXmlAutorizado += 		[</infProt>]
+   ::cXmlAutorizado += 	[</protNFe>]
+   ::cXmlAutorizado += [</nfeProc>]
 
-	Return(cXmlAutorizado)
+	Return(::cXmlAutorizado)
 	
 METHOD CTeAddCancelamento(cXmlAssinado,cXmlRetorno) CLASS SefazClass
+	LOCAL cDigVal
 	cDigVal := XmlNode( cXmlAssinado , "Signature" ) 
 	cDigVal := XmlNode( cDigVal , "SignedInfo" ) 
 	cDigVal := XmlNode( cDigVal , "Reference" ) 
 	cDigVal := XmlNode( cDigVal , "DigestValue" ) 
 	
-	cXmlAutorizado := [<?xml version="1.0"?>]
-	cXmlAutorizado += [<cteProc versao="2.00" xmlns="http://www.portalfiscal.inf.br/cte">]
-	cXmlAutorizado +=    cXmlAssinado
-	cXmlAutorizado += 	[<protCTe versao="2.00">]
-	cXmlAutorizado += 		[<infProt>]
-	cXmlAutorizado += 	   	XmlTag( "tpAmb" , XmlNode( XmlNode( XmlNode( cXmlRetorno , "retEventoCTe" ) , "infEvento" ), "tpAmb" ) ) // runner
-	cXmlAutorizado += 	   	XmlTag( "verAplic", XmlNode( XmlNode( XmlNode( cXmlRetorno , "retEventoCTe" ) , "infEvento" ), "verAplic" ) )
-	cXmlAutorizado += 	   	XmlTag( "chCTe" , XmlNode( XmlNode( XmlNode( cXmlRetorno , "retEventoCTe" ) , "infEvento" ), "chCTe" ) ) // runner
-	cXmlAutorizado += 	   	XmlTag( "dhRecbto" , XmlNode( XmlNode( XmlNode( cXmlRetorno , "retEventoCTe" ) , "infEvento" ), "dhRegEvento" ) ) // runner
-	cXmlAutorizado += 	   	XmlTag( "nProt" , XmlNode( XmlNode( XmlNode( cXmlRetorno , "retEventoCTe" ) , "infEvento" ), "nProt" ) ) // runner
-	cXmlAutorizado += 	   	XmlTag( "digVal", cDigVal)
-	cXmlAutorizado += 	   	XmlTag( "cStat", XmlNode( XmlNode( XmlNode( cXmlRetorno , "retEventoCTe" ) , "infEvento" ), "cStat" ) )
-	cXmlAutorizado += 	   	XmlTag( "xMotivo", 'Cancelamento do CTe homologado')
-	cXmlAutorizado += 		[</infProt>]
-	cXmlAutorizado += 	[</protNFe>]
-	cXmlAutorizado += [</cteProc>]
+	::cXmlAutorizado := [<?xml version="1.0"?>]
+	::cXmlAutorizado += [<cteProc versao="2.00" xmlns="http://www.portalfiscal.inf.br/cte">]
+	::cXmlAutorizado +=    cXmlAssinado
+	::cXmlAutorizado += 	[<protCTe versao="2.00">]
+	::cXmlAutorizado += 		[<infProt>]
+	::cXmlAutorizado += 	   	XmlTag( "tpAmb" , XmlNode( XmlNode( XmlNode( cXmlRetorno , "retEventoCTe" ) , "infEvento" ), "tpAmb" ) ) // runner
+	::cXmlAutorizado += 	   	XmlTag( "verAplic", XmlNode( XmlNode( XmlNode( cXmlRetorno , "retEventoCTe" ) , "infEvento" ), "verAplic" ) )
+	::cXmlAutorizado += 	   	XmlTag( "chCTe" , XmlNode( XmlNode( XmlNode( cXmlRetorno , "retEventoCTe" ) , "infEvento" ), "chCTe" ) ) // runner
+	::cXmlAutorizado += 	   	XmlTag( "dhRecbto" , XmlNode( XmlNode( XmlNode( cXmlRetorno , "retEventoCTe" ) , "infEvento" ), "dhRegEvento" ) ) // runner
+	::cXmlAutorizado += 	   	XmlTag( "nProt" , XmlNode( XmlNode( XmlNode( cXmlRetorno , "retEventoCTe" ) , "infEvento" ), "nProt" ) ) // runner
+	::cXmlAutorizado += 	   	XmlTag( "digVal", cDigVal)
+	::cXmlAutorizado += 	   	XmlTag( "cStat", XmlNode( XmlNode( XmlNode( cXmlRetorno , "retEventoCTe" ) , "infEvento" ), "cStat" ) )
+	::cXmlAutorizado += 	   	XmlTag( "xMotivo", 'Cancelamento do CTe homologado')
+	::cXmlAutorizado += 		[</infProt>]
+	::cXmlAutorizado += 	[</protNFe>]
+	::cXmlAutorizado += [</cteProc>]
 
 Return(cXmlAutorizado)
+
+METHOD MDFeEventoEncerramento( cChave, nSequencia , nProt, cUFFim , cMunCarrega , cCertificado, cAmbiente ) CLASS SefazClass
+
+   LOCAL cXml
+
+   IF cCertificado != NIL
+      ::cCertificado := cCertificado
+   ENDIF
+   IF cAmbiente != NIL
+      ::cAmbiente := cAmbiente
+   ENDIF
+   hb_Default( @nSequencia, 1 )
+
+   ::cUf := ::UFSigla( Substr( cChave, 1, 2 ) )
+
+   cXml := [<eventoMDFe xmlns="http://www.portalfiscal.inf.br/mdfe" versao="1.00">]
+   cXml +=    [<infEvento Id="ID110112] + cChave + StrZero( nSequencia, 2 ) + [">]
+   cXml +=       XmlTag( "cOrgao", Substr( cChave, 1, 2 ) )
+   cXml +=       XmlTag( "tpAmb", ::cAmbiente )
+   cXml +=       XmlTag( "CNPJ", Substr( cChave, 7, 14 ) )
+   cXml +=       XmlTag( "chMDFe", cChave )
+   cXml +=       XmlTag( "dhEvento", ::DateTimeXml( , , ,.F.) )
+   cXml +=       XmlTag( "tpEvento", "110112" )
+   cXml +=       XmlTag( "nSeqEvento", Ltrim( Str( nSequencia ) ) )
+   cXml +=       [<detEvento versaoEvento="1.00">]
+   cXml +=       	  [<evEncMDFe>]
+   cXml +=          		XmlTag( "descEvento", "Encerramento" )
+   cXml +=          		XmlTag( "nProt", Ltrim( Str( nProt ) ) )
+   cXml +=          		XmlTag( "dtEnc", DateXml( Date() ) )
+   cXml +=          		XmlTag( "cUF", ::UFCodigo( cUFFim ) )
+   cXml +=          		XmlTag( "cMun", cMunCarrega )
+   cXml +=       	  [</evEncMDFe>]
+   cXml +=       [</detEvento>]
+   cXml +=    [</infEvento>]
+   cXml += [</eventoMDFe>]
+   ::cXmlRetorno := AssinaXml( @cXml, ::cCertificado )
+   IF ::cXmlRetorno == "OK"
+      ::MDFeEventoEnvia( cChave, cXml, ::cCertificado, ::cAmbiente )
+      ::MDFeGeraEventoAutorizado( @cXml, hb_Utf8ToStr(::cXmlRetorno) )
+   ENDIF
+   
+   RETURN ::cXmlRetorno
+
+METHOD MDFeEventoEnvia( cChave, cXml, cCertificado, cAmbiente ) CLASS SefazClass
+
+	IF cCertificado != NIL
+	   ::cCertificado := cCertificado
+	ENDIF
+	IF cAmbiente != NIL
+	   ::cAmbiente := cAmbiente
+	ENDIF  
+	::cUf := ::UFSigla( Substr( cChave, 1, 2 ) )
+	::cVersaoXml   := "1.00"  
+	::cServico     := "http://www.portalfiscal.inf.br/mdfe/wsdl/MDFeRecepcaoEvento"
+	::cSoapAction  := "mdfeRecepcaoEvento"
+	::cWebService  := ::GetWebService( ::cUF, WS_MDFE_RECEPCAOEVENTO, ::cAmbiente, WS_PROJETO_MDFE )
+	::cXmlDados    :=    cXml
+	::XmlSoapPost( ::cUF, ::cCertificado, WS_PROJETO_MDFE )
+	RETURN ::cXmlRetorno
+
+METHOD MDFeGeraEventoAutorizado( cXmlAssinado, cXmlProtocolo ) CLASS SefazClass 
+
+   hb_Default( @cXmlAssinado, "" )
+   hb_Default( @cXmlProtocolo, "" )
+   ::cStatus := Pad( XmlNode( XmlNode( cXmlProtocolo, "retEventoMDFe" ), "cStat" ), 3 )
+   ::cMotivo := hb_Utf8ToStr( XmlNode( XmlNode( cXmlProtocolo, "retEventoMDFe" ), "xMotivo" ) ) 
+   IF ! ::cStatus $ "135,136"
+      RETURN ::cXmlRetorno
+   ENDIF
+   ::cXmlAutorizado := [<?xml version="1.00"?>]
+   ::cXmlAutorizado += [<procEvento versao="1.00" xmlns="http://www.portalfiscal.inf.br/mdfe">]
+   ::cXmlAutorizado +=    cXmlAssinado
+   ::cXmlAutorizado += [<retEventoMDFe versao="1.00">] 
+   ::cXmlAutorizado +=    hb_Utf8ToStr(XmlNode( cXmlProtocolo, "retEventoMDFe" ))
+   ::cXmlAutorizado += [</retEventoMDFe>] 
+   ::cXmlAutorizado += [</procEvento>]
+   ::cXmlDados := cXmlAssinado
+   ::cMotivo := hb_Utf8ToStr(XmlNode( XmlNode( cXmlProtocolo, "infEvento" ), "xMotivo" )) 
+
+   RETURN ::cXmlAutorizado
+
+METHOD MDFeEventoCancela( cChave, nSequencia, nProt, xJust, cCertificado, cAmbiente ) CLASS SefazClass
+
+   LOCAL cXml
+
+   IF cCertificado != NIL
+      ::cCertificado := cCertificado
+   ENDIF
+   IF cAmbiente != NIL
+      ::cAmbiente := cAmbiente
+   ENDIF
+   hb_Default( @nSequencia, 1 )
+
+   ::cUf := ::UFSigla( Substr( cChave, 1, 2 ) )
+
+   cXml := [<eventoMDFe xmlns="http://www.portalfiscal.inf.br/mdfe" versao="1.00">]
+   cXml +=    [<infEvento Id="ID110111] + cChave + StrZero( nSequencia, 2 ) + [">]
+   cXml +=       XmlTag( "cOrgao", Substr( cChave, 1, 2 ) )
+   cXml +=       XmlTag( "tpAmb", ::cAmbiente )
+   cXml +=       XmlTag( "CNPJ", Substr( cChave, 7, 14 ) )
+   cXml +=       XmlTag( "chMDFe", cChave )
+   cXml +=       XmlTag( "dhEvento", ::DateTimeXml( , , ,.F.) )
+   cXml +=       XmlTag( "tpEvento", "110111" )
+   cXml +=       XmlTag( "nSeqEvento", Ltrim( Str( nSequencia ) ) )
+   cXml +=       [<detEvento versaoEvento="1.00">]
+   cXml +=       	  [<evCancMDFe>]
+   cXml +=          		XmlTag( "descEvento", "Cancelamento" )
+   cXml +=          		XmlTag( "nProt", Ltrim( Str( nProt ) ) )
+   cXml +=          		XmlTag( "xJust", xJust )
+   cXml +=       	  [</evCancMDFe>]
+   cXml +=       [</detEvento>]
+   cXml +=    [</infEvento>]
+   cXml += [</eventoMDFe>]
+   ::cXmlRetorno := AssinaXml( @cXml, ::cCertificado )
+   IF ::cXmlRetorno == "OK"
+      ::MDFeEventoEnvia( cChave, cXml, ::cCertificado, ::cAmbiente )
+      ::MDFeGeraEventoAutorizado( @cXml, hb_Utf8ToStr(::cXmlRetorno) )
+   ENDIF
+   
+   RETURN ::cXmlRetorno
+
+METHOD MDFeConsNaoEnc( cCNPJ , cCertificado, cAmbiente ) CLASS SefazClass
+
+   IF cCertificado != NIL
+      ::cCertificado := cCertificado
+   ENDIF
+   IF cAmbiente != NIL
+      ::cAmbiente := cAmbiente
+   ENDIF             
+   ::cVersaoXml   := "1.00"      
+   ::cServico     := "http://www.portalfiscal.inf.br/mdfe/wsdl/MDFeConsNaoEnc"
+   ::cSoapAction  := "mdfeConsNaoEnc"
+   ::cWebService  := ::GetWebService( ::cUF, WS_MDFE_CONSNAOENC , ::cAmbiente, WS_PROJETO_MDFE )
+   ::cXmlDados    := [<consMDFeNaoEnc versao="] + ::cVersaoXml + [" xmlns="http://www.portalfiscal.inf.br/mdfe">]
+   ::cXmlDados    +=    XmlTag( "tpAmb", ::cAmbiente )
+   ::cXmlDados    +=    XmlTag( "xServ", "CONSULTAR NÃO ENCERRADOS" )
+   ::cXmlDados    +=    XmlTag( "CNPJ", cCNPJ )
+   ::cXmlDados    += [</consMDFeNaoEnc>]
+   ::XmlSoapPost( ::cUF, ::cCertificado, WS_PROJETO_MDFE )
+   ::cStatus := Pad( XmlNode( XmlNode( ::cXmlRetorno , "retConsMDFeNaoEnc" ) , "cStat" ), 3 )
+   ::cMotivo := XmlNode( XmlNode( ::cXmlRetorno , "retConsMDFeNaoEnc" ) , "xMotivo" )  
+   RETURN ::cXmlRetorno
+
